@@ -121,17 +121,19 @@ function courseplay.debugVehicle(channel, vehicle, ...)
 	end
 end
 
--- add a debug marker to the log file when Left Alt-D is pressed. This is to mark 
--- issues in the log file so developers can find relevant log entries easier.
-function courseplay.logDebugMarker()
-	local timestamp = getDate( "%H:%M:%S")
-	if g_server ~= nil then
-		print( string.format( '[dbg lp%d %s] Debug Marker %s', g_updateLoopIndex, timestamp,
-			g_careerScreen.savegames[g_careerScreen.selectedIndex].mapId ))
-	else
-		print( string.format( '[dbg lp%d %s] Debug Marker', g_updateLoopIndex, timestamp))
-	end
+function courseplay.info(...)
+	local updateLoopIndex = g_updateLoopIndex and g_updateLoopIndex or 0
+	local timestamp = getDate( ":%S")
+	print(string.format('%s [info lp%d] %s', timestamp, updateLoopIndex, string.format( ... )))
 end
+
+function courseplay.infoVehicle(vehicle, ...)
+	local vehicleName = vehicle and nameNum(vehicle) or "Unknown vehicle"
+	local updateLoopIndex = g_updateLoopIndex and g_updateLoopIndex or 0
+	local timestamp = getDate( ":%S")
+	print(string.format('%s [info lp%d] %s: %s', timestamp, updateLoopIndex, vehicleName, string.format( ... )))
+end
+
 
 local lines = {
 	('-'):rep(50),

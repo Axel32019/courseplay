@@ -240,7 +240,7 @@ function Course:init(vehicle, waypoints, temporary, first, last)
 	for i = first or 1, last or #waypoints do
 		-- make sure we pass in the original vehicle.Waypoints index with n+first
 		table.insert(self.waypoints, Waypoint(waypoints[i], n + (first or 1)))
-		n = n + 1
+		n = n + 1	
 	end
 	-- offset to apply to every position
 	self.offsetX, self.offsetZ = 0, 0

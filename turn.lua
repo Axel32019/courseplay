@@ -522,7 +522,7 @@ function courseplay:turn(vehicle, dt, turnContext)
 			if vehicle.cp.driver:shouldLowerImplements(turnContext.turnEndWpNode.node, curTurnTarget.turnReverse) then
 				courseplay.debugVehicle(12, vehicle, '(Turn) lowering implements')
 				vehicle.cp.driver:lowerImplements()
-				courseplay:addTemporaryMarker(vehicle, vehicle.cp.aiDriverData.frontMarkerNode)
+				courseplay:addTemporaryMarker(vehicle, vehicle.cp.driver.frontMarker:getNode())
 
 				vehicle.cp.isTurning = nil;
 
@@ -584,7 +584,7 @@ function courseplay:turn(vehicle, dt, turnContext)
 			if vehicle.cp.driver.shouldLowerImplements and vehicle.cp.driver:shouldLowerImplements(turnContext.turnEndWpNode.node, curTurnTarget.turnReverse) then
 				courseplay.debugVehicle(12, vehicle, '(Turn) lowering implements')
 				vehicle.cp.driver:lowerImplements()
-				courseplay:addTemporaryMarker(vehicle, vehicle.cp.aiDriverData.frontMarkerNode)
+				courseplay:addTemporaryMarker(vehicle, vehicle.cp.driver.frontMarker:getNode())
 
 				vehicle.cp.isTurning = nil;
 
