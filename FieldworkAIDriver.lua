@@ -60,7 +60,6 @@ function FieldworkAIDriver:init(vehicle)
 	-- duration of the last turn maneuver. This is a default value and the driver will measure
 	-- the actual turn times. Used to calculate the remaining fieldwork time
 	self.turnDurationMs = 20000
-	self:setMarkers()
 end
 
 function FieldworkAIDriver:setHudContent()
@@ -946,59 +945,27 @@ function FieldworkAIDriver:isAutoContinueAtWaitPointEnabled()
 	return false
 end
 
---- Calculate the front and back marker nodes of a work area
-function FieldworkAIDriver:getMarkerNodesForArea(object, area)
-	-- work areas are defined by three nodes: start, width and height. These nodes
-	-- define a rectangular work area which you can make visible with the
-	-- gsVehicleDebugAttributes console command and then pressing F5
-	local width, _, _ = localToLocal(area.width, area.start, 0, 0, 0)
-	-- place a node at the middle of the work area back
-	local backMarkerNode = courseplay.createNode(nameNum(object) .. ' back marker', width / 2, 0, 0, area.height)
-	-- place a node at the middle of the work area front
-	local frontMarkerNode
-	if area.type == WorkAreaType.SPRAYER then
-		-- Sprayers have a diamond shaped work area with the start node in the front, height on the left and width on the right side
-		-- to fully cover everything, we must make sure that the center of the diamond reaches the field edge
-		width, _, _ = localToLocal(area.width, area.height, 0, 0, 0) -- diagonal of the diagonal
-		-- center of the diamond
-		backMarkerNode = courseplay.createNode(nameNum(object) .. ' back marker', width / 2, 0, 0, area.height)
-		-- front corner of the diamond
-		frontMarkerNode = courseplay.createNode(nameNum(object) .. ' front marker', 0, 0, 0, area.start)
-	else
-		width, _, _ = localToLocal(area.width, area.start, 0, 0, 0)
-		backMarkerNode = courseplay.createNode(nameNum(object) .. ' back marker', width / 2, 0, 0, area.height)
-		frontMarkerNode = courseplay.createNode(nameNum(object) .. ' front marker', width / 2, 0, 0, area.start)
-	end
-	self:debug('Markers added to %s - %s, width = %.1f', nameNum(object), g_workAreaTypeManager.workAreaTypes[area.type].name, math.abs(width))
-	return frontMarkerNode, backMarkerNode
+function FieldworkAIDriver:startTurn(ix)
+	self:setMarkers()
+	AIDriver.startTurn(self, ix)
 end
 
---- For each work area: create nodes to mark the front and the back of the area. These will be used
---- to determine when to raise/lower the tools
+--- Find the foremost and rearmost AI marker
 function FieldworkAIDriver:setMarkers()
+	local markers= {}
 	local addMarkers = function(object, referenceNode)
-		self:debug('Finding work areas of %s', nameNum(object))
-		for _, area in courseplay:workAreaIterator(object) do
-			if self:isValidWorkArea(area) then
-				local frontMarkerNode, backMarkerNode = self:getMarkerNodesForArea(object, area)
-				local _, _, frontMarkerDistance = localToLocal(frontMarkerNode, referenceNode, 0, 0, 0)
-				local _, _, backMarkerDistance = localToLocal(backMarkerNode, referenceNode, 0, 0, 0)
-				table.insert(self.markers, {
-					front = Marker(frontMarkerNode, frontMarkerDistance, area),
-					back = Marker(backMarkerNode, backMarkerDistance, area)
-				})
-			end
+		self:debug('Finding AI markers of %s', nameNum(object))
+		local aiLeftMarker, aiRightMarker, aiBackMarker = object:getAIMarkers()
+		if aiLeftMarker and aiBackMarker and aiRightMarker then
+			local _, _, leftMarkerDistance = localToLocal(aiLeftMarker, referenceNode, 0, 0, 0)
+			local _, _, rightMarkerDistance = localToLocal(aiRightMarker, referenceNode, 0, 0, 0)
+			local _, _, backMarkerDistance = localToLocal(aiBackMarker, referenceNode, 0, 0, 0)
+			table.insert(markers, leftMarkerDistance)
+			table.insert(markers, rightMarkerDistance)
+			table.insert(markers, backMarkerDistance)
 		end
 	end
-	-- first remove any old markers
-	if self.markers then
-		for _, markers in pairs(self.markers) do
-			courseplay.destroyNode(markers.front:getNode())
-			courseplay.destroyNode(markers.back:getNode())
-		end
-	end
-	---@type Marker[]
-	self.markers = {}
+
 	local referenceNode = self.vehicle.cp.DirectionNode or self.vehicle.rootNode
 	-- now go ahead and try to find the real markers
 	-- work areas of the vehicle itself
@@ -1007,56 +974,66 @@ function FieldworkAIDriver:setMarkers()
 	for _, implement in pairs(self.vehicle:getAttachedImplements()) do
 		addMarkers(implement.object, referenceNode)
 	end
-	if #self.markers == 0 then
+	if #markers == 0 then
 		-- make sure we always have a default front/back marker, placed on the direction node if nothing else found
-		table.insert(self.markers, {
-			object = self.vehicle,
-			front = Marker(courseplay.createNode(self.vehicle:getName() .. ' front marker', 0, 0, 0, referenceNode), 0),
-			back = Marker(courseplay.createNode(self.vehicle:getName() .. ' back marker', 0, 0, 0, referenceNode), 0)
-		})
+		table.insert(markers, 0)
+		table.insert(markers, 3)
 	end
-	-- set two default markers
-	self.frontMarker = self.markers[1].front
-	self.backMarker = self.markers[1].back
 	-- now that we have all, find the foremost and the last
 	self.frontMarkerDistance, self.backMarkerDistance = 0, 0
 	local frontMarkerDistance, backMarkerDistance = -math.huge, math.huge
-	for _, markers in pairs(self.markers) do
-		self:debug(' -> %s: dz = %.1f', getName(markers.front:getNode()), markers.front:getDistance())
-		if markers.front:getDistance() > frontMarkerDistance then
-			frontMarkerDistance = markers.front:getDistance()
-			self.frontMarker= markers.front
+	for _, d in pairs(markers) do
+		if d > frontMarkerDistance then
+			frontMarkerDistance = d
 		end
-		self:debug(' -> %s: dz = %.1f', getName(markers.back:getNode()), markers.back:getDistance())
-		if markers.front:getDistance() < backMarkerDistance then
-			backMarkerDistance = markers.back:getDistance()
-			self.backMarker = markers.back
+		if d < backMarkerDistance then
+			backMarkerDistance = d
 		end
 	end
-
 	-- set these up for turn.lua. TODO: pass in with the turn context and get rid of the aiFrontMarker and backMarkerOffset completely
-	self.vehicle.cp.aiFrontMarker = self.frontMarker:getDistance()
-	self.vehicle.cp.backMarkerOffset = self.backMarker:getDistance()
-
-	self:debug('Front marker node: %s (%.1f m), back %s (%.1f) m',
-		getName(self.frontMarker:getNode()), self.frontMarker:getDistance(),
-		getName(self.backMarker:getNode()), self.backMarker:getDistance())
+	self.vehicle.cp.aiFrontMarker = frontMarkerDistance
+	self.frontMarkerDistance = frontMarkerDistance
+	self.vehicle.cp.backMarkerOffset = backMarkerDistance
+	self.backMarkerDistance = backMarkerDistance
+	self:debug('front marker: %.1f, back marker: %.1f', frontMarkerDistance, backMarkerDistance)
 end
 
----@param waypoint Waypoint
-function FieldworkAIDriver:getFrontMarkerDistanceToWaypoint(ix)
-	if self.frontMarker then
-		local _, _, dz = self.course:getWaypointLocalPosition(self.frontMarker:getNode(), ix)
-		return dz
+function FieldworkAIDriver:getAIMarkers(object)
+	local aiLeftMarker, aiRightMarker, aiBackMarker
+	if object.getAIMarkers then
+		aiLeftMarker, aiRightMarker, aiBackMarker = object:getAIMarkers()
+	end
+	if not aiLeftMarker or not aiRightMarker or not aiLeftMarker then
+		-- use the root node if there are no AI markers
+		self:debug('%s has no AI markers', nameNum(object))
+		return nil, nil, nil
 	else
-		return nil
+		return aiLeftMarker, aiRightMarker, aiBackMarker
 	end
 end
 
+--- When finishing a turn, is it time to lower all implements here?
+function FieldworkAIDriver:shouldLowerImplements(turnEndNode, reversing)
+	-- see if the vehicle has AI markers -> has work areas (built-in implements like a mower or cotton harvester)
+	local doLower = self:shouldLowerThisImplement(self.vehicle, turnEndNode, reversing)
+	-- and then check all implements
+	for _, implement in pairs(self.vehicle:getAttachedImplements()) do
+		-- if it is time to lower any implement, we'll lower all, hence the 'or'
+		doLower = doLower or self:shouldLowerThisImplement(implement.object, turnEndNode, reversing)
+	end
+	return doLower
+end
+
+---@param object ... is a vehicle or implement object with AI markers (marking the working area of the implement)
 ---@param turnEndNode node at the first waypoint of the row, pointing in the direction of travel. This is where
 --- the implement should be in the working position after a turn
-function FieldworkAIDriver:shouldLowerImplements(turnEndNode, reversing)
-	local _, _, dz = localToLocal(self:getLowerImplementNode(), turnEndNode, 0, 0, 0)
+---@param reversing boolean are we reversing? When reversing towards the turn end point, we must lower the implements
+--- when we are _behind_ the turn end node (dz < 0), otherwise once we reach it (dz > 0)
+function FieldworkAIDriver:shouldLowerThisImplement(object, turnEndNode, reversing)
+	local aiLeftMarker, aiRightMarker, aiBackMarker = self:getAIMarkers(object)
+	if not aiLeftMarker then return false end
+	local _, _, dzLeft = localToLocal(aiLeftMarker, turnEndNode, 0, 0, 0)
+	local _, _, dzRight = localToLocal(aiRightMarker, turnEndNode, 0, 0, 0)
 	local loweringDistance
 	if FieldworkAIDriver.hasImplementWithSpecialization(self.vehicle, SowingMachine) then
 		-- sowing machines are stopped while lowering
@@ -1066,48 +1043,39 @@ function FieldworkAIDriver:shouldLowerImplements(turnEndNode, reversing)
 		-- in the working position by the time we get to the first waypoint of the next row
 		loweringDistance = self.vehicle.lastSpeed * self:getLoweringDurationMs() + 0.5 -- vehicle.lastSpeed is in meters per millisecond
 	end
-		self:debug('dz = %.1f, loweringDistance = %.1f', dz, loweringDistance)
+	self:debug('%s: dzLeft = %.1f, dzRight = %.1f, loweringDistance = %.1f', nameNum(object), dzLeft, dzRight, loweringDistance)
+	-- both left and right sides should reach the turn end node
 	if reversing then
-		return dz < 0
+		return dzLeft < 0 and dzRight < 0
 	else
 		-- dz will be negative as we are behind the target node
-		return dz > - loweringDistance
+		return dzLeft > - loweringDistance and dzRight > - loweringDistance
 	end
+end
+
+function FieldworkAIDriver:shouldRaiseImplements(turnStartNode)
+	-- see if the vehicle has AI markers -> has work areas (built-in implements like a mower or cotton harvester)
+	local doRaise = self:shouldRaiseThisImplement(self.vehicle, turnStartNode)
+	-- and then check all implements
+	for _, implement in pairs(self.vehicle:getAttachedImplements()) do
+		-- only when _all_ implements can be raised will we raise them all, hence the 'and'
+		doRaise = doRaise and self:shouldRaiseThisImplement(implement.object, turnStartNode)
+	end
+	return doRaise
 end
 
 ---@param targetNode node at the last waypoint of the row, pointing in the direction of travel. This is where
 --- the implement should be raised when beginning a turn
-function FieldworkAIDriver:shouldRaiseImplements(turnStartNode)
-	-- turn start node in the front marker node's coordinate system
-	local _, _, dz = localToLocal(turnStartNode, self:getRaiseImplementNode(), 0, 0, 0)
-	self:debug('shouldRaiseImplements: dz = %.1f', dz)
+function FieldworkAIDriver:shouldRaiseThisImplement(object, turnStartNode)
+	local _, _, aiBackMarker = self:getAIMarkers(object)
+	-- if something (like a combine) does not have an AI marker it should not prevent from raising other implements
+	-- like the header, which does have markers), therefore, return true here
+	if not aiBackMarker then return true end
+	-- turn start node in the back marker node's coordinate system
+	local _, _, dzBack = localToLocal(turnStartNode, aiBackMarker, 0, 0, 0)
+	self:debug('%s: shouldRaiseImplements: dz = %.1f', nameNum(object), dzBack)
 	-- turn start node just behind the marker
-	return dz < 0
-end
-
---- Returns a node which needs to reach the turn start node to raise the implement before a turn
-function FieldworkAIDriver:getRaiseImplementNode()
-	-- for now, use the same marker for raise and lower
-	return self:getLowerImplementNode()
-end
-
---- Returns a node which needs to reach the turn end node to lower the implement after a turn
-function FieldworkAIDriver:getLowerImplementNode()
-	if self.frontMarker:isSprayer() then
-		-- sprayers have a diamond shaped work area and if we use the front marker we'll leave little triangles at the
-		-- field edge unsprayed, so move the front marker to the back instead. TODO: find a nicer solution for this, maybe
-		-- a per work area check for raise/lower?
-		return self.backMarker:getNode()
-	else
-		return self.frontMarker:getNode()
-	end
-end
-
-function FieldworkAIDriver:isValidWorkArea(area)
-	return area.start and area.height and area.width and
-		area.type ~= WorkAreaType.RIDGEMARKER and
-		area.type ~= WorkAreaType.COMBINESWATH and
-		area.type ~= WorkAreaType.COMBINECHOPPER
+	return dzBack < 0
 end
 
 function FieldworkAIDriver:onDraw()
@@ -1116,30 +1084,4 @@ function FieldworkAIDriver:onDraw()
 		DebugUtil.drawDebugNode(self.backMarker:getNode(), getName(self.backMarker:getNode()))
 	end
 	AIDriver.onDraw(self)
-end
-
----@class Marker
-Marker = CpObject()
-
---- A marker to mark the front and back of a work area. Markers are used to determine the exact position of an
---- implement to lower or raise
-function Marker:init(node, distance, area)
-	self.node = node
-	-- distance from the vehicle's root node, negative is front of the vehicle
-	self.distance = distance
-	-- work area used to calculate this marker
-	self.area = area
-end
-
-function Marker:getNode()
-	return self.node
-end
-
---- A positive distance is in front of the vehicle
-function Marker:getDistance()
-	return self.distance
-end
-
-function Marker:isSprayer()
-	return self.area.type == WorkAreaType.SPRAYER
 end

@@ -522,7 +522,7 @@ function courseplay:turn(vehicle, dt, turnContext)
 			if vehicle.cp.driver:shouldLowerImplements(turnContext.turnEndWpNode.node, curTurnTarget.turnReverse) then
 				courseplay.debugVehicle(12, vehicle, '(Turn) lowering implements')
 				vehicle.cp.driver:lowerImplements()
-				courseplay:addTemporaryMarker(vehicle, vehicle.cp.driver.frontMarker:getNode())
+				--courseplay:addTemporaryMarker(vehicle, vehicle.cp.driver.frontMarker:getNode())
 
 				vehicle.cp.isTurning = nil;
 
@@ -584,7 +584,7 @@ function courseplay:turn(vehicle, dt, turnContext)
 			if vehicle.cp.driver.shouldLowerImplements and vehicle.cp.driver:shouldLowerImplements(turnContext.turnEndWpNode.node, curTurnTarget.turnReverse) then
 				courseplay.debugVehicle(12, vehicle, '(Turn) lowering implements')
 				vehicle.cp.driver:lowerImplements()
-				courseplay:addTemporaryMarker(vehicle, vehicle.cp.driver.frontMarker:getNode())
+				--courseplay:addTemporaryMarker(vehicle, vehicle.cp.driver.frontMarker:getNode())
 
 				vehicle.cp.isTurning = nil;
 
@@ -1742,7 +1742,6 @@ end;
 function courseplay:getLaneInfo(vehicle)
 	local numLanes			= 1;
 	local onLaneNum			= 0;
-	courseplay.debugFormat(14, '%d %s %s', vehicle.cp.waypointIndex,vehicle.cp.startWork, vehicle.cp.stopWork)
 	for index, wP in ipairs(vehicle.Waypoints) do
 		local isWorkArea = index >= vehicle.cp.startWork and index <= vehicle.cp.stopWork;
 		if (wP.generated or isWorkArea) and (not wP.lane or wP.lane >= 0) then
